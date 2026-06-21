@@ -50,22 +50,5 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install fastapi uvicorn pydantic openai httpx
-      - name: Run demo (smoke test)
-        run: python -c "
-import sys
-sys.path.insert(0, '.')
-from devmind import Tracer, MockEngine
-
-def buggy():
-    balance = 100
-    balance -= 200
-    return balance
-
-with Tracer(label='ci_test', record_lines=True) as t:
-    buggy()
-
-engine = MockEngine()
-answer = engine.analyze_trace(t.session)
-assert len(answer.root_causes) > 0, 'Expected root causes'
-print('Demo smoke test passed:', answer.answer[:80])
-"
+      - name: Run demo smoke test
+        run: python scripts/smoke_test.py
