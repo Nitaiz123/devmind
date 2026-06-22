@@ -297,6 +297,50 @@ class TestLogParser:
         assert entry is not None
         assert entry.level == "ERROR"
 
+    def test_apache_5xx_is_error(self):
+        """Apache/Nginx 5xx status codes must map to ERROR level."""
+        line = '192.168.1.1 - - [15/Jan/2024:10:23:45 +0000] "GET /api/pay HTTP/1.1" 500 1234'
+        entry = parse_log_line(line, service="nginx", entry_id=1)
+        assert entry is not None, "Apache log line should be parsed"
+        assert entry.level == "ERROR", f"Expected ERROR for 500, got {entry.level}"
+        assert entry.fields.get("status") == 500
+
+    def test_apache_4xx_is_warn(self):
+        """Apache/Nginx 4xx status codes must map to WARN level."""
+        line = '10.0.0.1 - - [15/Jan/2024:10:23:45 +0000] "POST /login HTTP/1.1" 404 512'
+        entry = parse_log_line(line, service="nginx", entry_id=1)
+        assert entry is not None
+        assert entry.level == "WARN", f"Expected WARN for 404, got {entry.level}"
+
+    def test_apache_2xx_is_info(self):
+        """Apache/Nginx 2xx status codes must map to INFO level."""
+        line = '10.0.0.1 - - [15/Jan/2024:10:23:45 +0000] "GET /health HTTP/1.1" 200 42'
+        entry = parse_log_line(line, service="nginx", entry_id=1)
+        assert entry is not None
+        assert entry.level == "INFO", f"Expected INFO for 200, got {entry.level}"
+
+    def test_logfmt_error_level(self):
+        """logfmt lines with level=error must be parsed as ERROR."""
+        line = 'ts=2024-01-15T10:23:45Z level=error msg="database timeout" service=api latency=5000'
+        entry = parse_log_line(line, entry_id=1)
+        assert entry is not None, "logfmt line should be parsed"
+        assert entry.level == "ERROR", f"Expected ERROR for level=error, got {entry.level}"
+        assert "database timeout" in entry.message
+
+    def test_logfmt_warn_level(self):
+        """logfmt lines with level=warn must be parsed as WARN."""
+        line = 'ts=2024-01-15T10:23:45Z level=warn msg="high memory" service=worker'
+        entry = parse_log_line(line, entry_id=1)
+        assert entry is not None
+        assert entry.level == "WARN", f"Expected WARN for level=warn, got {entry.level}"
+
+    def test_logfmt_lvl_alias(self):
+        """logfmt lines using lvl= instead of level= must also be parsed."""
+        line = 'time=2024-01-15T10:23:45Z lvl=error msg="connection refused" app=db'
+        entry = parse_log_line(line, entry_id=1)
+        assert entry is not None
+        assert entry.level == "ERROR", f"Expected ERROR for lvl=error, got {entry.level}"
+
 
 class TestInfraSession:
     def test_ingest_log_text(self):

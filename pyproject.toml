@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "devmind"
+version = "1.0.0"
+description = "AI-powered debugging copilot — execution time machine + infrastructure analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Nitaiz123"}]
+keywords = ["debugging", "tracing", "llm", "observability", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Debuggers",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "pydantic>=2.0.0",
+    "openai>=1.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio", "httpx", "ruff"]
+
+[project.scripts]
+devmind = "devmind.cli.cli:main"
+
+[tool.setuptools.packages.find]
+# Only include the 'devmind' package — prevents the repo root from shadowing
+# the installed package when running 'pip install -e .' from inside the repo.
+where = ["."]
+include = ["devmind*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

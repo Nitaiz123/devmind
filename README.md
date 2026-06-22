@@ -81,10 +81,27 @@ DevMind sends structured context to an LLM (GPT-4, Claude, or local Ollama) and 
 
 ```bash
 pip install devmind
-# or from source:
-git clone https://github.com/Nitaiz123/devmind
-cd devmind && pip install -e .
 ```
+
+**From source (editable install):**
+
+```bash
+git clone https://github.com/Nitaiz123/devmind
+cd devmind
+pip install -e .
+```
+
+> **Note for editable installs:** Run scripts from **outside** the repo directory to avoid a Python import shadowing issue where the local `devmind/` folder takes precedence over the installed package. For example:
+> ```bash
+> # ✅ Works — running from outside the repo
+> cd ~
+> python my_script.py
+>
+> # ⚠️  May shadow the install if devmind/ folder is in the current directory
+> cd ~/devmind
+> python my_script.py
+> ```
+> This is a standard Python packaging behaviour. The included `conftest.py` handles this automatically when running `pytest` from the repo root.
 
 ### 1. Trace a Python Script
 
@@ -178,20 +195,26 @@ devmind demo
 
 ## Supported Log Formats
 
-DevMind auto-detects and parses:
+DevMind auto-detects and parses the following formats. Level extraction is tested for all six:
 
-| Format | Example |
-|--------|---------|
-| **JSON** | `{"level":"ERROR","message":"Timeout","latency_ms":5000}` |
-| **Python logging** | `2024-01-15 10:23:45,123 ERROR myapp.db Connection refused` |
-| **Apache/Nginx** | `192.168.1.1 - - [15/Jan/2024:10:23:45] "GET /api" 500 1234` |
-| **Kubernetes** | `2024-01-15T10:23:45.123Z error pod/api-xyz crashed` |
-| **Logfmt** | `time=2024-01-15 level=error msg="DB timeout" service=api` |
-| **Plain text** | Any line containing ERROR/WARN/FATAL keywords |
+| Format | Example | Level Detection |
+|--------|---------|----------------|
+| **JSON** | `{"level":"ERROR","message":"Timeout","latency_ms":5000}` | `level` / `severity` field |
+| **Python logging** | `2024-01-15 10:23:45,123 ERROR myapp.db Connection refused` | Explicit level token |
+| **Apache/Nginx** | `192.168.1.1 - - [15/Jan/2024:10:23:45] "GET /api" 500 1234` | HTTP status → ERROR (5xx), WARN (4xx), INFO (2xx/3xx) |
+| **Kubernetes** | `2024-01-15T10:23:45.123Z error pod/api-xyz crashed` | Explicit level token |
+| **Logfmt** | `ts=2024-01-15T10:23:45Z level=error msg="DB timeout" service=api` | `level=` / `lvl=` key |
+| **Plain text** | Any line containing ERROR/WARN/FATAL keywords | Keyword scan fallback |
+
+> **Apache/Nginx note:** HTTP status codes are mapped to log levels — 5xx → `ERROR`, 4xx → `WARN`, 2xx/3xx → `INFO`. The raw `status` field is preserved in `entry.fields["status"]` for filtering.
+>
+> **Logfmt note:** The parser requires a `level=` or `lvl=` key to be present. Lines without a level key fall through to the plain-text keyword scanner.
 
 ---
 
 ## Using with a Real LLM
+
+> **Testing note:** The test suite exercises the full analysis pipeline via `MockEngine`, which validates all context building, prompt construction, and result parsing logic without requiring an API key. The `DevMindEngine` (OpenAI/Ollama) path is integration-tested separately — set `OPENAI_API_KEY` or point `base_url` at a local Ollama instance to run live tests. The quality of LLM output depends on the model used; GPT-4o and Claude 3.5 Sonnet produce the best root cause explanations in practice.
 
 ```python
 from devmind.llm.engine import DevMindEngine

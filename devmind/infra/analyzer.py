@@ -76,7 +76,7 @@ class DeployEvent:
 _PATTERNS = [
     # JSON log
     ("json", re.compile(r"^\s*\{")),
-    # Apache/Nginx combined log
+    # Apache/Nginx combined log (with optional quoted user-agent / referrer fields)
     ("apache", re.compile(
         r'(?P<ip>[\d.]+) .+ \[(?P<time>[^\]]+)\] "(?P<method>\w+) (?P<path>[^ ]+)[^"]*" (?P<status>\d+) (?P<size>\d+)'
     )),
@@ -92,7 +92,22 @@ _PATTERNS = [
     ("k8s", re.compile(
         r"(?P<time>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[.\d]*Z?)\s+(?P<level>debug|info|warn|error|fatal)\s+(?P<msg>.*)"
     )),
+    # logfmt — key=value pairs, must contain a level= or lvl= key
+    ("logfmt", re.compile(
+        r'(?:^|\s)(?:level|lvl)=(?P<level>\S+)'
+    )),
 ]
+
+# logfmt full-line parser — extracts all key=value or key="value" pairs
+_LOGFMT_PAIR = re.compile(r'(\w+)=(?:"([^"]*)"|([^\s]*))')
+
+
+def _parse_logfmt(line: str) -> dict:
+    """Parse a logfmt line into a dict of key→value pairs."""
+    return {
+        m.group(1): m.group(2) if m.group(2) is not None else m.group(3)
+        for m in _LOGFMT_PAIR.finditer(line)
+    }
 
 _LEVEL_MAP = {
     "WARNING": "WARN", "CRITICAL": "FATAL",
@@ -156,6 +171,29 @@ def parse_log_line(line: str, service: str = "unknown", entry_id: int = 0) -> Op
         except json.JSONDecodeError:
             pass
 
+    # Try Apache/Nginx combined log
+    m = _PATTERNS[1][1].search(line)
+    if m:
+        status = int(m.group("status"))
+        # Map HTTP status codes to log levels
+        if status >= 500:
+            level = "ERROR"
+        elif status >= 400:
+            level = "WARN"
+        else:
+            level = "INFO"
+        method = m.group("method")
+        path = m.group("path")
+        return LogEntry(
+            entry_id=entry_id,
+            timestamp=_parse_timestamp(m.group("time")),
+            level=level,
+            service=service,
+            message=f"{method} {path} {status}",
+            fields={"status": status, "method": method, "path": path,
+                    "size": m.group("size"), "ip": m.group("ip")},
+        )
+
     # Try Python logging
     m = _PATTERNS[2][1].match(line)
     if m:
@@ -180,6 +218,27 @@ def parse_log_line(line: str, service: str = "unknown", entry_id: int = 0) -> Op
             level=level,
             service=service,
             message=m.group("msg"),
+        )
+
+    # Try logfmt (key=value pairs with a level= or lvl= key)
+    m = _PATTERNS[5][1].search(line)
+    if m:
+        fields = _parse_logfmt(line)
+        raw_level = (fields.get("level") or fields.get("lvl") or "info").lower()
+        level = _LEVEL_MAP.get(raw_level, raw_level.upper())
+        # Extract timestamp from ts= or time= field
+        ts_str = fields.get("ts") or fields.get("time") or ""
+        ts = _parse_timestamp(ts_str) if ts_str else time.time()
+        msg = fields.get("msg") or fields.get("message") or line[:200]
+        svc = fields.get("service") or fields.get("app") or service
+        return LogEntry(
+            entry_id=entry_id,
+            timestamp=ts,
+            level=level,
+            service=svc,
+            message=msg,
+            fields={k: v for k, v in fields.items()
+                    if k not in ("level", "lvl", "ts", "time", "msg", "message", "service", "app")},
         )
 
     # Try generic
